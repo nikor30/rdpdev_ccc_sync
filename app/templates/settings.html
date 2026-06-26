@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Settings · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<p class="muted">These override the values from the environment / <code>.env</code> and
+are stored in the database, so they survive restarts. Secrets are write-only:
+leave a password blank to keep the current one.</p>
+
+{% if saved %}<div class="notice ok-notice">Settings saved.</div>{% endif %}
+{% if error %}<div class="notice err-notice">{{ error }}</div>{% endif %}
+
+<form method="post" action="/settings" name="settings-form" class="form form-wide">
+  {% for section, fields in groups %}
+    <fieldset>
+      <legend>{{ section }}</legend>
+      {% for f in fields %}
+        {% if f.kind == "bool" %}
+          <label class="checkbox">
+            <input type="checkbox" name="{{ f.name }}"{% if values[f.name] %} checked{% endif %}>
+            {{ f.label }}
+          </label>
+          {% if f.help %}<p class="hint">{{ f.help }}</p>{% endif %}
+        {% elif f.kind == "readonly" %}
+          <label>{{ f.label }}
+            <input type="text" value="{{ values[f.name] }}" disabled>
+          </label>
+          {% if f.help %}<p class="hint">{{ f.help }}</p>{% endif %}
+        {% elif f.kind == "secret" %}
+          <label>{{ f.label }}
+            <input type="password" name="{{ f.name }}" autocomplete="new-password"
+                   placeholder="{% if secret_set[f.name] %}•••••• (leave blank to keep){% else %}not set{% endif %}">
+          </label>
+          {% if f.help %}<p class="hint">{{ f.help }}</p>{% endif %}
+        {% else %}
+          <label>{{ f.label }}
+            <input type="{% if f.kind == 'int' %}number{% else %}text{% endif %}"
+                   name="{{ f.name }}" value="{{ values[f.name] }}">
+          </label>
+          {% if f.help %}<p class="hint">{{ f.help }}</p>{% endif %}
+        {% endif %}
+
+        {% if f.name == "catalyst_timeout" %}
+          <div class="test-row">
+            <button type="button" id="test-btn">Test connection</button>
+            <span id="test-result" class="muted">Checks authentication against Catalyst Center.</span>
+          </div>
+        {% endif %}
+      {% endfor %}
+    </fieldset>
+  {% endfor %}
+
+  <div class="form-actions">
+    <button type="submit">Save settings</button>
+  </div>
+</form>
+
+<script>
+(function () {
+  var btn = document.getElementById('test-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    var form = document.forms['settings-form'];
+    var out = document.getElementById('test-result');
+    var body = new URLSearchParams();
+    ['catalyst_base_url', 'catalyst_username', 'catalyst_password', 'catalyst_timeout']
+      .forEach(function (n) { if (form.elements[n]) body.append(n, form.elements[n].value); });
+    body.append('catalyst_verify_ssl', form.elements['catalyst_verify_ssl'].checked ? 'on' : '');
+
+    out.textContent = 'Testing…';
+    out.className = 'muted';
+    btn.disabled = true;
+    fetch('/settings/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString()
+    })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        out.textContent = d.message;
+        out.className = d.ok ? 'ok' : 'warn';
+      })
+      .catch(function (e) {
+        out.textContent = 'Test request failed: ' + e;
+        out.className = 'warn';
+      })
+      .then(function () { btn.disabled = false; });
+  });
+})();
+</script>
+{% endblock %}

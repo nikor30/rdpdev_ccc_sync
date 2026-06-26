@@ -17,8 +17,9 @@ import io
 
 from sqlalchemy.orm import Session
 
-from .config import Settings, settings as default_settings
+from .config import Settings
 from .db import Device
+from .settings_store import get_settings
 
 CSV_FIELDS = ["Name", "Group", "Host", "ConnectionType"]
 
@@ -38,7 +39,7 @@ def device_placement(device: Device, cfg: Settings | None = None) -> tuple[str, 
     This is the single source of truth for placement: both the CSV export and
     the tree preview call it, so the preview can never disagree with the export.
     """
-    cfg = cfg or default_settings
+    cfg = cfg or get_settings()
     site = device.effective_site
     region = site.effective_region if site else ""
     site_name = site.effective_name if site else ""
@@ -56,7 +57,7 @@ def group_path(device: Device, cfg: Settings | None = None) -> str:
 
 
 def build_rows(session: Session, cfg: Settings | None = None) -> list[dict]:
-    cfg = cfg or default_settings
+    cfg = cfg or get_settings()
     rows: list[dict] = []
     for d in session.query(Device).all():
         if d.excluded:

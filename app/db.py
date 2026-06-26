@@ -124,6 +124,20 @@ class SyncRun(Base):
     devices_synced: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class AppSetting(Base):
+    """A single GUI-editable setting, overriding the env default of the same name.
+
+    Stored as text; pydantic coerces it back to the field's type when the
+    effective settings are rebuilt (see ``settings_store``). Only keys that have
+    been edited in the UI are present; everything else falls back to the env.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String, default="")
+
+
 # --- Engine / session ---------------------------------------------------------
 
 def _ensure_sqlite_dir(url: str) -> None:

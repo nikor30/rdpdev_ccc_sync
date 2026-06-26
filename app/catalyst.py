@@ -106,5 +106,22 @@ class CatalystClient:
         )
         return data.get("response", []) or []
 
+    def probe(self) -> dict[str, Any]:
+        """Cheap authenticated sanity check for the "Test connection" button.
+
+        Authenticates and hits the network-device endpoint with a tiny page to
+        prove the token works and the inventory API is reachable. The device
+        count (a separate, best-effort call) is included when available.
+        """
+        self.authenticate()
+        self._get("/dna/intent/api/v1/network-device", {"limit": 1, "offset": 1})
+        info: dict[str, Any] = {}
+        try:
+            count = self._get("/dna/intent/api/v1/network-device/count")
+            info["device_count"] = count.get("response")
+        except CatalystError:
+            info["device_count"] = None
+        return info
+
     def close(self) -> None:
         self._client.close()
