@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Devices · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Devices</h1>
+
+<form method="get" action="/devices" class="search">
+  <input type="text" name="q" value="{{ q }}" placeholder="Search hostname / IP / site">
+  <button type="submit">Search</button>
+  {% if q %}<a class="btn-link" href="/devices">Clear</a>{% endif %}
+</form>
+
+<table class="grid">
+  <thead>
+    <tr><th>Hostname</th><th>IP</th><th>Site</th><th>Region</th><th>Family</th><th>State</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for d in devices %}
+      <tr class="{% if d.excluded %}is-excluded{% endif %}">
+        <td>{{ d.effective_hostname or '—' }}{% if d.hostname_override %}<span class="pill">override</span>{% endif %}</td>
+        <td>{{ d.management_ip }}</td>
+        <td>
+          {% if d.effective_site %}{{ d.effective_site.effective_name }}{% if d.site_override_id %}<span class="pill">pinned</span>{% endif %}
+          {% else %}<span class="warn">unassigned</span>{% endif %}
+        </td>
+        <td>
+          {% if d.effective_site and d.effective_site.effective_region %}{{ d.effective_site.effective_region }}
+          {% else %}<span class="warn">—</span>{% endif %}
+        </td>
+        <td class="muted">{{ d.family or '' }}</td>
+        <td>
+          {% if d.excluded %}<span class="pill">excluded</span>
+          {% elif not d.seen_in_last_sync %}<span class="pill warn">stale</span>
+          {% else %}<span class="muted">{{ d.reachability or '' }}</span>{% endif %}
+        </td>
+        <td><a href="/devices/{{ d.id }}/edit">Edit</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="muted">No devices match.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

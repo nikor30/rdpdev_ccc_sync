@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Catalyst → RDM Sync{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><a href="/">Catalyst&nbsp;→&nbsp;RDM</a></div>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/tree">Tree</a>
+      <a href="/sites">Sites</a>
+      <a href="/devices">Devices</a>
+      <a href="/conflicts">Conflicts{% if nav_conflicts %}
+        <span class="badge{% if nav_blocking %} badge-error{% endif %}">{{ nav_conflicts }}</span>{% endif %}</a>
+    </nav>
+    <div class="actions">
+      <form method="post" action="/sync" class="inline">
+        <button type="submit">Sync now</button>
+      </form>
+      <a class="btn-link" href="/export/devolutions.csv">Export CSV</a>
+    </div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

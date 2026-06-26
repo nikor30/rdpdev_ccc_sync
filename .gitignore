@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Local config & data (never commit secrets or the staging DB)
+.env
+*.db
+*.sqlite
+*.sqlite3
+/data/

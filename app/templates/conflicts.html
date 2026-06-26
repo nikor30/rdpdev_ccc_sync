@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Conflicts · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Conflicts</h1>
+<p class="muted">
+  <strong class="{% if report.blocking_count %}warn{% else %}ok{% endif %}">{{ report.blocking_count }}</strong> blocking error(s),
+  {{ report.warnings|length }} warning(s), {{ report.infos|length }} info.
+  Errors block a clean export; warnings and info do not.
+</p>
+
+{% macro issue_rows(issues) %}
+  {% for i in issues %}
+    <tr class="sev-{{ i.severity }}">
+      <td><span class="sev-tag sev-{{ i.severity }}">{{ i.severity }}</span></td>
+      <td>{{ i.category }}</td>
+      <td>{{ i.message }}</td>
+      <td>
+        {% if i.device_id %}<a href="/devices/{{ i.device_id }}/edit?next=/conflicts">device</a>{% endif %}
+        {% if i.site_id %}<a href="/sites/{{ i.site_id }}/edit?next=/conflicts">site</a>{% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+{% endmacro %}
+
+{% if report.count == 0 %}
+  <p class="ok">No conflicts. Ready to export. ✓</p>
+{% else %}
+  <table class="grid">
+    <thead>
+      <tr><th>Severity</th><th>Type</th><th>Detail</th><th>Fix</th></tr>
+    </thead>
+    <tbody>
+      {{ issue_rows(report.errors) }}
+      {{ issue_rows(report.warnings) }}
+      {{ issue_rows(report.infos) }}
+    </tbody>
+  </table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Edit site · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Edit site: {{ site.effective_name }}</h1>
+<p class="muted">Catalyst hierarchy: {{ site.hierarchy or "—" }}</p>
+
+<form method="post" action="/sites/{{ site.id }}" class="form">
+  <input type="hidden" name="next" value="{{ next_to }}">
+
+  <label>Region override
+    <input type="text" name="region_override" value="{{ site.region_override or '' }}"
+           placeholder="{{ site.region or 'e.g. EMEA' }}">
+  </label>
+  <p class="hint">Derived from hierarchy: <strong>{{ site.region or '— none —' }}</strong></p>
+
+  <label>Name override
+    <input type="text" name="name_override" value="{{ site.name_override or '' }}"
+           placeholder="{{ site.name }}">
+  </label>
+
+  <div class="form-actions">
+    <button type="submit">Save</button>
+    <a class="btn-link" href="{{ next_to }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

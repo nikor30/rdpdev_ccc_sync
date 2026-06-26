@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Dashboard · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% if running %}
+  <div class="notice">A sync is currently running… this page will refresh.</div>
+  <script>setTimeout(function () { location.reload(); }, 4000);</script>
+{% endif %}
+
+<section class="cards">
+  <div class="card"><div class="num">{{ device_count }}</div><div class="label">Switches</div></div>
+  <div class="card"><div class="num">{{ excluded_count }}</div><div class="label">Excluded</div></div>
+  <div class="card"><div class="num">{{ site_count }}</div><div class="label">Sites</div></div>
+  <div class="card"><div class="num">{{ region_count }}</div><div class="label">Regions</div></div>
+</section>
+
+<section>
+  <h2>Last sync</h2>
+  {% if last_run %}
+    <table class="kv">
+      <tr><th>Status</th><td><span class="status status-{{ last_run.status }}">{{ last_run.status }}</span></td></tr>
+      <tr><th>Started</th><td>{{ last_run.started_at }}</td></tr>
+      <tr><th>Finished</th><td>{{ last_run.finished_at or "—" }}</td></tr>
+      <tr><th>Sites synced</th><td>{{ last_run.sites_synced }}</td></tr>
+      <tr><th>Switches synced</th><td>{{ last_run.devices_synced }}</td></tr>
+      {% if last_run.message %}<tr><th>Message</th><td class="muted">{{ last_run.message }}</td></tr>{% endif %}
+    </table>
+  {% else %}
+    <p class="muted">No sync has run yet. Click <strong>Sync now</strong> to pull inventory.</p>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Data quality</h2>
+  <p>
+    <a href="/conflicts"><strong class="{% if report.blocking_count %}warn{% else %}ok{% endif %}">{{ report.blocking_count }}</strong> blocking</a>,
+    {{ report.warnings|length }} warning{{ "" if report.warnings|length == 1 else "s" }},
+    {{ report.infos|length }} info.
+  </p>
+  {% if report.count == 0 %}
+    <p class="ok">No conflicts — ready to export. ✓</p>
+  {% endif %}
+</section>
+{% endblock %}
