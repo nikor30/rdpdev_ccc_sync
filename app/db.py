@@ -44,6 +44,9 @@ class Site(Base):
     region_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     name_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
+    country: Mapped[str] = mapped_column(String, default="")  # derived from address
+    country_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     address: Mapped[Optional[str]] = mapped_column(String, nullable=True)
@@ -63,6 +66,25 @@ class Site(Base):
     def effective_name(self) -> str:
         return (self.name_override or self.name or "").strip()
 
+    @property
+    def effective_country(self) -> str:
+        return (self.country_override or self.country or "").strip()
+
+    @property
+    def area_name(self) -> str:
+        """The campus/area this building sits in (the 'Site' level in the tree).
+
+        From the Catalyst hierarchy ``Global/EMEA/Sweden/Stockholm/Building-1``
+        this is ``Stockholm`` — i.e. the segment just above the building, with
+        the ``Global`` root and the building's own name removed.
+        """
+        parts = [p for p in (self.hierarchy or "").split("/") if p]
+        if parts and parts[0].lower() == "global":
+            parts = parts[1:]
+        if parts and parts[-1] == self.name:
+            parts = parts[:-1]
+        return parts[-1] if parts else ""
+
 
 class Device(Base):
     """A network switch pulled from Catalyst Center."""
@@ -81,6 +103,7 @@ class Device(Base):
     platform: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     series: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     software_version: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    serial_number: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     reachability: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     site_id: Mapped[Optional[int]] = mapped_column(
@@ -89,6 +112,9 @@ class Device(Base):
     site_override_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("sites.id"), nullable=True
     )
+    # Three-letter site code (e.g. STO). Derived from the hostname at export time;
+    # this column only holds a manual override for the rare mismatch.
+    site_code_override: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     excluded: Mapped[bool] = mapped_column(Boolean, default=False)
 
     seen_in_last_sync: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -108,6 +134,19 @@ class Device(Base):
     @property
     def effective_hostname(self) -> str:
         return (self.hostname_override or self.hostname or "").strip()
+
+    @property
+    def asset_summary(self) -> str:
+        """Human-readable asset block for the RDM entry's Description field."""
+        bits = [
+            ("Model", self.platform),
+            ("Series", self.series),
+            ("IOS", self.software_version),
+            ("S/N", self.serial_number),
+            ("Role", self.role),
+            ("Reachability", self.reachability),
+        ]
+        return " | ".join(f"{label}: {value}" for label, value in bits if value)
 
 
 class SyncRun(Base):

@@ -18,6 +18,13 @@
            placeholder="{{ site.name }}">
   </label>
 
+  <label>Country override
+    <input type="text" name="country_override" value="{{ site.country_override or '' }}"
+           placeholder="{{ site.country or 'e.g. Germany' }}">
+  </label>
+  <p class="hint">Derived from address: <strong>{{ site.country or '— none —' }}</strong>
+    {% if site.address %}<br><span class="muted">{{ site.address }}</span>{% endif %}</p>
+
   <div class="form-actions">
     <button type="submit">Save</button>
     <a class="btn-link" href="{{ next_to }}">Cancel</a>

@@ -39,6 +39,9 @@ FIELDS: list[Field] = [
           "Comma-separated Catalyst families to import."),
     Field("region_hierarchy_level", "Region hierarchy level", "Inventory mapping", "int",
           "Index after 'Global' that is the region (Global/EMEA/... = 1)."),
+    Field("site_code_regex", "Site-code regex", "Inventory mapping", "text",
+          "Regex with one capture group pulling the 3-letter code from a "
+          "hostname. SSTO010CIS -> STO. The capture is upper-cased."),
 
     Field("sync_interval_minutes", "Background sync interval (minutes)", "Scheduling", "int",
           "0 disables the scheduler. Applied immediately on save."),
@@ -50,8 +53,11 @@ FIELDS: list[Field] = [
     Field("web_password", "Web password", "Web UI login", "secret"),
 
     Field("ssh_connection_type", "RDM connection type", "Devolutions export", "text"),
+    Field("export_root", "Root folder", "Devolutions export", "text",
+          "Top-level RDM folder the whole tree hangs under (e.g. Webasto). "
+          "Leave blank if you import under an existing root folder."),
     Field("export_unsorted_group", "Review folder name", "Devolutions export", "text",
-          "Folder for devices with no resolved region/site."),
+          "Folder for devices that can't be placed (missing region/country/code)."),
 
     Field("database_url", "Database URL", "Storage", "readonly",
           "Set via the DATABASE_URL env var; changing it requires a restart."),

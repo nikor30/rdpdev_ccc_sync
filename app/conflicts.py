@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from sqlalchemy.orm import Session
 
 from .db import Device, Site
+from .export import device_placement, site_code_for
+from .settings_store import get_settings
 
 
 @dataclass
@@ -45,44 +47,61 @@ class ConflictReport:
 
 def compute_conflicts(session: Session) -> ConflictReport:
     report = ConflictReport()
+    cfg = get_settings()
     devices = session.query(Device).all()
     sites = session.query(Site).all()
     active = [d for d in devices if not d.excluded]
 
-    # Devices with no resolvable site, or a site with no region.
+    # Devices that can't be placed into the full Region/Country/Site/Building tree.
     for d in active:
         site = d.effective_site
+        label = d.effective_hostname or d.management_ip
         if site is None:
             report.issues.append(
                 Issue(
                     "error",
                     "Unassigned device",
-                    f"{d.effective_hostname or d.management_ip} has no site. "
-                    "Assign a site override or exclude it.",
+                    f"{label} has no site. Assign a site override or exclude it.",
                     device_id=d.id,
                 )
             )
-        elif not site.effective_region:
-            report.issues.append(
-                Issue(
-                    "error",
-                    "Device site has no region",
-                    f"{d.effective_hostname or d.management_ip} is in "
-                    f"'{site.effective_name}', which has no region.",
-                    device_id=d.id,
-                    site_id=site.id,
-                )
+            continue
+        if device_placement(d, cfg).resolved:
+            continue
+        missing = []
+        if not site.effective_region:
+            missing.append("region")
+        if not site.effective_country:
+            missing.append("country")
+        if not site_code_for(d, cfg):
+            missing.append("site code")
+        if not site.effective_name:
+            missing.append("building name")
+        report.issues.append(
+            Issue(
+                "error",
+                "Device can't be placed",
+                f"{label} is missing {', '.join(missing)}; it will land in "
+                f"'{cfg.export_unsorted_group}'. Fix via the site/device overrides.",
+                device_id=d.id,
+                site_id=site.id,
             )
+        )
 
-    # Sites with no region.
+    # Sites missing the geo fields that build the tree.
     for s in sites:
+        gaps = []
         if not s.effective_region:
+            gaps.append("region")
+        if not s.effective_country:
+            gaps.append("country")
+        if gaps:
             report.issues.append(
                 Issue(
                     "warning",
-                    "Site has no region",
-                    f"Site '{s.effective_name}' ({s.hierarchy}) has no region. "
-                    "Set a region override.",
+                    "Site missing geo data",
+                    f"Site '{s.effective_name}' ({s.hierarchy}) has no "
+                    f"{' or '.join(gaps)}. Set an override.",
                     site_id=s.id,
                 )
             )
