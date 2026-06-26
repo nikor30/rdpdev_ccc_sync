@@ -16,8 +16,9 @@ import threading
 from datetime import datetime, timezone
 
 from .catalyst import CatalystClient
-from .config import Settings, settings as default_settings
+from .config import Settings
 from .db import Device, Site, SyncRun, SessionLocal
+from .settings_store import get_settings
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ def _member_device_id(member: dict) -> str:
 
 def run_sync(cfg: Settings | None = None) -> SyncRun:
     """Execute a full sync. Returns the completed SyncRun record (detached)."""
-    cfg = cfg or default_settings
+    cfg = cfg or get_settings()
 
     if not _sync_lock.acquire(blocking=False):
         log.info("Sync already running; skipping this trigger.")

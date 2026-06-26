@@ -16,15 +16,21 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .config import settings
+from .catalyst import CatalystClient
 from .conflicts import compute_conflicts
 from .db import Device, Site, SyncRun, SessionLocal, init_db
 from .export import device_placement, to_csv
+from .settings_store import SettingsError, get_settings, save as save_settings, view_model
 from .sync import run_sync, sync_in_progress
 
 logging.basicConfig(
@@ -44,22 +50,41 @@ def _safe_sync() -> None:
         log.exception("Background sync crashed.")
 
 
+def apply_schedule() -> None:
+    """Add/reschedule/remove the background sync job from the current settings.
+
+    Called at startup and whenever settings are saved, so changing the interval
+    in the UI takes effect without a restart.
+    """
+    if not scheduler.running:
+        return
+    minutes = get_settings().sync_interval_minutes
+    job = scheduler.get_job("catalyst_sync")
+    if minutes and minutes > 0:
+        if job is None:
+            scheduler.add_job(
+                _safe_sync,
+                "interval",
+                minutes=minutes,
+                id="catalyst_sync",
+                max_instances=1,
+                coalesce=True,
+            )
+        else:
+            scheduler.reschedule_job("catalyst_sync", trigger="interval", minutes=minutes)
+        log.info("Background sync scheduled every %d min", minutes)
+    elif job is not None:
+        scheduler.remove_job("catalyst_sync")
+        log.info("Background sync schedule cleared")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    if settings.sync_on_startup:
+    if get_settings().sync_on_startup:
         threading.Thread(target=_safe_sync, daemon=True).start()
-    if settings.sync_interval_minutes > 0:
-        scheduler.add_job(
-            _safe_sync,
-            "interval",
-            minutes=settings.sync_interval_minutes,
-            id="catalyst_sync",
-            max_instances=1,
-            coalesce=True,
-        )
-        scheduler.start()
-        log.info("Scheduler started: every %d min", settings.sync_interval_minutes)
+    scheduler.start()
+    apply_schedule()
     yield
     if scheduler.running:
         scheduler.shutdown(wait=False)
@@ -74,12 +99,13 @@ _security = HTTPBasic(auto_error=False)
 
 
 def require_auth(creds: HTTPBasicCredentials | None = Depends(_security)) -> None:
-    if not settings.web_username:
+    cfg = get_settings()
+    if not cfg.web_username:
         return
     ok = (
         creds is not None
-        and secrets.compare_digest(creds.username, settings.web_username)
-        and secrets.compare_digest(creds.password, settings.web_password)
+        and secrets.compare_digest(creds.username, cfg.web_username)
+        and secrets.compare_digest(creds.password, cfg.web_password)
     )
     if not ok:
         raise HTTPException(
@@ -111,11 +137,12 @@ def build_tree(session) -> list[dict]:
     has ``name == None`` and is rendered without a site sub-folder, matching the
     single flat ``_Review`` folder the export emits.
     """
+    cfg = get_settings()
     buckets: dict[str, dict[str, dict]] = {}
     for d in session.query(Device).all():
         if d.excluded:
             continue
-        region, site_name = device_placement(d, settings)
+        region, site_name = device_placement(d, cfg)
         region_bucket = buckets.setdefault(region, {})
         entry = region_bucket.setdefault(
             site_name or "", {"name": site_name, "site": None, "devices": []}
@@ -127,7 +154,7 @@ def build_tree(session) -> list[dict]:
 
     result: list[dict] = []
     for region in sorted(
-        buckets, key=lambda r: (r == settings.export_unsorted_group, r.lower())
+        buckets, key=lambda r: (r == cfg.export_unsorted_group, r.lower())
     ):
         sites = []
         for key in sorted(buckets[region], key=lambda n: n.lower()):
@@ -145,7 +172,7 @@ def render(request: Request, template: str, session, **ctx) -> HTMLResponse:
     base = {
         "nav_conflicts": report.count,
         "nav_blocking": report.blocking_count,
-        "review_group": settings.export_unsorted_group,
+        "review_group": get_settings().export_unsorted_group,
     }
     base.update(ctx)
     return templates.TemplateResponse(request, template, base)
@@ -340,6 +367,79 @@ def sync_now(background: BackgroundTasks, _: None = Depends(require_auth)):
 @app.get("/status")
 def status(_: None = Depends(require_auth)):
     return {"running": sync_in_progress()}
+
+
+# --- Settings -----------------------------------------------------------------
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, saved: int = 0, _: None = Depends(require_auth)):
+    session = SessionLocal()
+    try:
+        return render(
+            request, "settings.html", session,
+            saved=bool(saved), error=None, **view_model(),
+        )
+    finally:
+        session.close()
+
+
+@app.post("/settings")
+async def settings_save(request: Request, _: None = Depends(require_auth)):
+    form = dict((await request.form()).items())
+    session = SessionLocal()
+    try:
+        try:
+            save_settings(form)
+        except SettingsError as exc:
+            return render(
+                request, "settings.html", session,
+                saved=False, error=exc.message, **view_model(form),
+            )
+    finally:
+        session.close()
+    apply_schedule()  # interval changes take effect immediately
+    return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+@app.post("/settings/test")
+def settings_test(
+    catalyst_base_url: str = Form(""),
+    catalyst_username: str = Form(""),
+    catalyst_password: str = Form(""),
+    catalyst_verify_ssl: str = Form(""),
+    catalyst_timeout: str = Form(""),
+    _: None = Depends(require_auth),
+):
+    """Probe Catalyst Center with the values in the form (falling back to saved
+    settings for blanks). Returns JSON for the inline "Test connection" button."""
+    cfg = get_settings()
+    base_url = catalyst_base_url.strip() or cfg.catalyst_base_url
+    username = catalyst_username.strip() or cfg.catalyst_username
+    password = catalyst_password or cfg.catalyst_password  # blank => use saved
+    verify = catalyst_verify_ssl == "on"
+    try:
+        timeout = int(catalyst_timeout)
+    except (TypeError, ValueError):
+        timeout = cfg.catalyst_timeout
+
+    if not base_url:
+        return JSONResponse({"ok": False, "message": "Set a base URL first."})
+
+    client = CatalystClient(base_url, username, password, verify_ssl=verify, timeout=timeout)
+    try:
+        count = client.probe().get("device_count")
+        detail = (
+            f"{count} network devices reported"
+            if count is not None
+            else "inventory API reachable"
+        )
+        return JSONResponse(
+            {"ok": True, "message": f"Connected to {base_url}. Authentication OK; {detail}."}
+        )
+    except Exception as exc:  # surface the failure text to the UI
+        return JSONResponse({"ok": False, "message": str(exc)})
+    finally:
+        client.close()
 
 
 @app.get("/export/devolutions.csv")

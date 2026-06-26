@@ -58,13 +58,23 @@ Re-run a sync as often as you like — Catalyst-sourced fields refresh, your fix
 
 ## Configuration
 
-Copy `.env.example` to `.env` and fill it in:
+You can configure everything two ways, and they layer:
+
+1. **Environment / `.env`** — the bootstrap defaults (copy `.env.example` to `.env`).
+2. **The Settings page in the UI** (`/settings`) — every value below is editable
+   there, stored in the database, and **overrides the environment**. Because it
+   lives on the `/data` volume, your changes survive restarts and image rebuilds.
+   Secrets are write-only (leave a password blank to keep the current one), and
+   **Test connection** authenticates against Catalyst Center and reports back
+   before you save. `DATABASE_URL` is the one exception — it's needed to open the
+   database itself, so it's shown read-only and can only be set via the environment.
 
 | Variable | Default | Notes |
 |---|---|---|
 | `CATALYST_BASE_URL` | — | e.g. `https://dnac.example.com` |
 | `CATALYST_USERNAME` / `CATALYST_PASSWORD` | — | read-only account is enough (see below) |
 | `CATALYST_VERIFY_SSL` | `true` | set `false` only for lab appliances with self-signed certs |
+| `CATALYST_TIMEOUT` | `30` | per-request timeout in seconds |
 | `SWITCH_FAMILIES` | `Switches and Hubs` | comma-separated families to keep |
 | `REGION_HIERARCHY_LEVEL` | `1` | hierarchy index after `Global` that is the region |
 | `DATABASE_URL` | `sqlite:////data/catalyst_rdm.db` | leave as-is in the container |
@@ -98,21 +108,28 @@ Open <http://localhost:8080>, click **Sync now**, then review the **Tree**.
 ### Or with compose
 
 ```bash
-podman-compose up -d     # or: docker compose up -d
+docker compose up -d --build   # or: podman-compose up -d
 ```
+
+The compose file treats `.env` as **optional** (`required: false`, needs Docker
+Compose ≥ 2.24): bring the stack up with no `.env` and configure everything in
+the UI under **Settings**, or drop in a `.env` (`cp .env.example .env`) to seed
+the defaults from the environment. On older Compose, create the `.env` first.
 
 The SQLite staging DB lives on the `catalyst_rdm_data` volume, so it persists
 across restarts and image rebuilds.
 
 ## Suggested workflow
 
-1. **Sync now** on the dashboard.
-2. Open **Conflicts**. Errors (red) block clean export; warnings/info don't.
+1. Open **Settings**, fill in the Catalyst Center connection, and click
+   **Test connection** to confirm the credentials work. Save.
+2. **Sync now** on the dashboard.
+3. Open **Conflicts**. Errors (red) block clean export; warnings/info don't.
    * *Unassigned device* → open it, set a **site override** (or exclude it).
    * *Site has no region* → open the site, set a **region override**.
    * *Duplicate IP / hostname* → fix in Catalyst Center, or set a hostname override.
-3. Check the **Tree** — it's a live preview of exactly what RDM will receive.
-4. Download the CSV from **Export CSV** (or point RDM at the stable URL
+4. Check the **Tree** — it's a live preview of exactly what RDM will receive.
+5. Download the CSV from **Export CSV** (or point RDM at the stable URL
    `http://<host>:8080/export/devolutions.csv`).
 
 ## Import into Devolutions RDM
@@ -159,14 +176,16 @@ entries and add new ones.
 
 ```
 app/
-  config.py      env-driven settings
-  db.py          SQLAlchemy models (Site, Device, SyncRun)
-  catalyst.py    Catalyst Center API client
-  sync.py        sync engine + hierarchy → region/site mapping
-  conflicts.py   data-quality checks
-  export.py      Devolutions CSV builder
-  main.py        FastAPI app (UI + export)
-  templates/     Jinja2 views
-  static/        stylesheet
-Dockerfile  docker-compose.yml  requirements.txt  .env.example
+  config.py        env-driven default settings
+  settings_store.py effective settings (env + DB overrides) for the UI
+  db.py            SQLAlchemy models (Site, Device, SyncRun, AppSetting)
+  catalyst.py      Catalyst Center API client (+ connection probe)
+  sync.py          sync engine + hierarchy → region/site mapping
+  conflicts.py     data-quality checks
+  export.py        Devolutions CSV builder + shared placement logic
+  main.py          FastAPI app (UI + settings + export)
+  templates/       Jinja2 views
+  static/          stylesheet
+tests/             pytest suite
+Dockerfile  docker-compose.yml  requirements.txt  requirements-dev.txt  .env.example
 ```
