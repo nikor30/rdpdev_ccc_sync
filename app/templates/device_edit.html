@@ -6,10 +6,14 @@
 <table class="kv">
   <tr><th>Management IP</th><td>{{ device.management_ip or "—" }}</td></tr>
   <tr><th>Catalyst hostname</th><td>{{ device.hostname or "—" }}</td></tr>
-  <tr><th>Auto-mapped site</th><td>{% if device.site %}{{ device.site.effective_name }}{% else %}— unassigned —{% endif %}</td></tr>
-  <tr><th>Family / Series</th><td class="muted">{{ device.family or "" }} {{ device.series or "" }}</td></tr>
-  <tr><th>Platform</th><td class="muted">{{ device.platform or "" }}</td></tr>
-  <tr><th>Software</th><td class="muted">{{ device.software_version or "" }}</td></tr>
+  <tr><th>Auto-mapped building</th><td>{% if device.site %}{{ device.site.effective_name }}{% else %}— unassigned —{% endif %}</td></tr>
+  <tr><th>Auto site code</th><td>{{ derived_code or "— none from hostname —" }}</td></tr>
+  <tr><th>Model / Platform</th><td class="muted">{{ device.platform or "" }}</td></tr>
+  <tr><th>Series</th><td class="muted">{{ device.series or "" }}</td></tr>
+  <tr><th>IOS / Software</th><td class="muted">{{ device.software_version or "" }}</td></tr>
+  <tr><th>Serial number</th><td class="muted">{{ device.serial_number or "—" }}</td></tr>
+  <tr><th>Role / Reachability</th><td class="muted">{{ device.role or "" }} {% if device.reachability %}· {{ device.reachability }}{% endif %}</td></tr>
+  <tr><th>Export description</th><td class="muted">{{ device.asset_summary or "—" }}</td></tr>
 </table>
 
 <form method="post" action="/devices/{{ device.id }}" class="form">
@@ -20,7 +24,7 @@
            placeholder="{{ device.hostname }}">
   </label>
 
-  <label>Site override
+  <label>Site (building) override
     <select name="site_override_id">
       <option value="">— use auto-mapped —</option>
       {% for s in sites %}
@@ -28,6 +32,12 @@
       {% endfor %}
     </select>
   </label>
+
+  <label>Site-code override
+    <input type="text" name="site_code_override" value="{{ device.site_code_override or '' }}"
+           placeholder="{{ derived_code or 'e.g. STO' }}" maxlength="8">
+  </label>
+  <p class="hint">Leave blank to use the code derived from the hostname.</p>
 
   <label class="checkbox">
     <input type="checkbox" name="excluded"{% if device.excluded %} checked{% endif %}>

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     # Which element of the site hierarchy (after "Global") is the region.
     # "Global/EMEA/Munich/Plant-A" -> level 1 == "EMEA".
     region_hierarchy_level: int = 1
+    # Regex (with one capture group) that pulls the 3-letter site code out of a
+    # device hostname. "SSTO010CIS" -> "STO". The captured group is upper-cased.
+    site_code_regex: str = r"^[A-Za-z]?([A-Za-z]{3})"
 
     # --- Storage ---
     database_url: str = "sqlite:////data/catalyst_rdm.db"
@@ -35,6 +38,9 @@ class Settings(BaseSettings):
     # --- Devolutions export ---
     ssh_connection_type: str = "SSHShell"
     export_unsorted_group: str = "_Review"
+    # Top-level RDM folder the whole tree hangs under. Blank it if you import
+    # under an existing root folder in RDM (to avoid Webasto\Webasto).
+    export_root: str = "Webasto"
 
     @property
     def switch_family_list(self) -> list[str]:

@@ -18,11 +18,13 @@ BASE_FORM = {
     "catalyst_timeout": "30",
     "switch_families": "Switches and Hubs",
     "region_hierarchy_level": "1",
+    "site_code_regex": r"^[A-Za-z]?([A-Za-z]{3})",
     "sync_interval_minutes": "0",
     # sync_on_startup omitted => false
     "web_username": "",
     "web_password": "",                 # blank => keep current
     "ssh_connection_type": "SSHShell",
+    "export_root": "Webasto",
     "export_unsorted_group": "_Review",
 }
 

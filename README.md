@@ -27,30 +27,43 @@ top of the tree in RDM and every switch below inherits it.
 
 ## How the mapping works
 
-Catalyst Center's site hierarchy maps directly onto the RDM folder tree:
+The export builds a six-level RDM folder tree:
 
-| Catalyst Center            | This tool | RDM result            |
-|----------------------------|-----------|-----------------------|
-| Area under Global (`EMEA`) | Region    | Top-level folder      |
-| Building (`Munich-Plant`)  | Site      | Sub-folder (has address + coordinates) |
-| Floor                      | rolled up to its building | — |
-| Switch                     | Device    | SSH session entry     |
+```
+<Root> \ Region \ Country \ Site (CODE) \ Building \ Device
+Webasto \ EMEA   \ Sweden  \ Stockholm (STO) \ HQ    \ SSTO014CIS
+```
 
-* **Region** is the hierarchy element after `Global` (configurable via
-  `REGION_HIERARCHY_LEVEL`). `Global/EMEA/Munich-Plant` → region `EMEA`.
-* **Buildings become sites** because they carry the street address and lat/long,
-  which is what you want to see "where it is".
-* Switches assigned to a **floor** are rolled up to the parent building.
+| Level    | Source | Notes |
+|----------|--------|-------|
+| **Root** | `EXPORT_ROOT` (default `Webasto`) | Blank it if you import under an existing root folder. |
+| **Region** | Catalyst hierarchy, level after `Global` (`REGION_HIERARCHY_LEVEL`) | `Global/EMEA/...` → `EMEA`. |
+| **Country** | The building's street **address** (last component) | Override per site if the guess is wrong. |
+| **Site (CODE)** | The building's **parent area** + a 3-letter code | Code comes from the device **hostname** via `SITE_CODE_REGEX` (`SSTO010CIS` → `STO`). Rendered `Area (CODE)`. |
+| **Building** | Catalyst **building** name | Floors roll up into their building. |
+| **Device** | Switch | SSH session entry; discovered asset info goes in its Description. |
+
 * Only devices in the families listed in `SWITCH_FAMILIES` are imported
   (default `Switches and Hubs`), so routers/APs/WLCs are skipped.
+* A switch is only placed when it has a region, country, site code **and**
+  building; otherwise it lands in the `EXPORT_UNSORTED_GROUP` review folder and
+  shows up under **Conflicts** telling you exactly what's missing.
+* **Credentials inherit from the root** — the CSV carries no username/password,
+  so set one SSH credential on the top folder and every switch below inherits it.
+
+### Asset information
+
+Each device entry's **Description** is populated from what Catalyst Center
+discovered: model/platform, series, IOS/software version, serial number, role
+and reachability — e.g. `Model: C9300-48P | IOS: 17.9.4 | S/N: FOC2531 | Role: ACCESS`.
 
 ## Overrides survive re-syncs
 
 Anything you change in the UI is stored in separate columns and is **never**
 overwritten by a sync:
 
-* `region override` / `name override` on a site
-* `site override` on a device (pin an unassigned or mis-placed switch)
+* `region override` / `name override` / `country override` on a site
+* `site override` (pin a switch to a building) and `site-code override` on a device
 * `hostname override` (disambiguate duplicates / set a nicer RDM name)
 * `exclude` a device from the export
 
@@ -77,12 +90,14 @@ You can configure everything two ways, and they layer:
 | `CATALYST_TIMEOUT` | `30` | per-request timeout in seconds |
 | `SWITCH_FAMILIES` | `Switches and Hubs` | comma-separated families to keep |
 | `REGION_HIERARCHY_LEVEL` | `1` | hierarchy index after `Global` that is the region |
+| `SITE_CODE_REGEX` | `^[A-Za-z]?([A-Za-z]{3})` | one capture group; pulls the 3-letter site code from the hostname (`SSTO010CIS` → `STO`) |
 | `DATABASE_URL` | `sqlite:////data/catalyst_rdm.db` | leave as-is in the container |
 | `SYNC_INTERVAL_MINUTES` | `0` | `0` = manual only; otherwise background sync cadence |
 | `SYNC_ON_STARTUP` | `false` | run one sync when the container starts |
 | `WEB_USERNAME` / `WEB_PASSWORD` | empty | set both to require HTTP Basic auth on the UI |
 | `SSH_CONNECTION_TYPE` | `SSHShell` | RDM connection type written to the CSV |
-| `EXPORT_UNSORTED_GROUP` | `_Review` | folder for devices with no resolved region/site |
+| `EXPORT_ROOT` | `Webasto` | top-level RDM folder; blank to import under an existing root |
+| `EXPORT_UNSORTED_GROUP` | `_Review` | folder for devices that can't be placed |
 
 ### Catalyst Center permissions
 
@@ -125,8 +140,10 @@ across restarts and image rebuilds.
    **Test connection** to confirm the credentials work. Save.
 2. **Sync now** on the dashboard.
 3. Open **Conflicts**. Errors (red) block clean export; warnings/info don't.
-   * *Unassigned device* → open it, set a **site override** (or exclude it).
-   * *Site has no region* → open the site, set a **region override**.
+   * *Unassigned device* → open it, set a **site (building) override** (or exclude it).
+   * *Device can't be placed* → it tells you what's missing (region / country / site
+     code); fix via the site overrides, or set a **site-code override** on the device.
+   * *Site missing geo data* → open the site, set a **region / country override**.
    * *Duplicate IP / hostname* → fix in Catalyst Center, or set a hostname override.
 4. Check the **Tree** — it's a live preview of exactly what RDM will receive.
 5. Download the CSV from **Export CSV** (or point RDM at the stable URL
@@ -150,10 +167,13 @@ across restarts and image rebuilds.
    * `Name` → entry **Name**
    * `Host` → **Host** / Host name
    * `Group` → **Group / Folder** (RDM reads the `\` as folder nesting, so
-     `EMEA\Munich-Plant` becomes a two-level tree)
+     `Webasto\EMEA\Sweden\Stockholm (STO)\HQ` becomes the full tree)
    * `ConnectionType` → set entries as **SSH Shell** (map the column, or pick the
      SSH Shell template in the wizard)
-4. Import under the top folder from step 1 so inheritance applies.
+   * `Description` → entry **Description** (the discovered asset info)
+4. Import under the top folder from step 1 so inheritance applies. If you blanked
+   `EXPORT_ROOT`, import under your own `Webasto` root; otherwise the CSV already
+   carries `Webasto\…` as the first level.
 
 To refresh later, re-run the sync and re-import — RDM will update matching
 entries and add new ones.

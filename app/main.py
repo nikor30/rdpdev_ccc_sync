@@ -29,7 +29,7 @@ from fastapi.templating import Jinja2Templates
 from .catalyst import CatalystClient
 from .conflicts import compute_conflicts
 from .db import Device, Site, SyncRun, SessionLocal, init_db
-from .export import device_placement, to_csv
+from .export import device_placement, site_code_for, to_csv
 from .settings_store import SettingsError, get_settings, save as save_settings, view_model
 from .sync import run_sync, sync_in_progress
 
@@ -129,42 +129,59 @@ def _all_sites(session) -> list[Site]:
     return sorted(sites, key=lambda s: (s.effective_region.lower(), s.effective_name.lower()))
 
 
-def build_tree(session) -> list[dict]:
-    """Group active devices exactly the way the export will: Region -> Site -> Device.
+def build_tree(session) -> dict:
+    """Nested preview of the exact RDM tree:
+    Root -> Region -> Country -> Site (CODE) -> Building -> Device.
 
     Placement comes from ``device_placement`` so this preview can never disagree
-    with the CSV. Unresolved devices share the flat review group: their bucket
-    has ``name == None`` and is rendered without a site sub-folder, matching the
-    single flat ``_Review`` folder the export emits.
+    with the CSV. Devices that can't be fully placed are listed under the flat
+    review group, exactly as the export files them.
     """
     cfg = get_settings()
-    buckets: dict[str, dict[str, dict]] = {}
+    nested: dict[str, dict[str, dict[str, dict[str, list]]]] = {}
+    review: list = []
     for d in session.query(Device).all():
         if d.excluded:
             continue
-        region, site_name = device_placement(d, cfg)
-        region_bucket = buckets.setdefault(region, {})
-        entry = region_bucket.setdefault(
-            site_name or "", {"name": site_name, "site": None, "devices": []}
+        p = device_placement(d, cfg)
+        if not p.resolved:
+            review.append(d)
+            continue
+        (
+            nested.setdefault(p.region, {})
+            .setdefault(p.country, {})
+            .setdefault(p.site_label, {})
+            .setdefault(p.building, [])
+            .append(d)
         )
-        # Keep a representative Site for display (address/coords) when resolved.
-        if entry["site"] is None and site_name:
-            entry["site"] = d.effective_site
-        entry["devices"].append(d)
 
-    result: list[dict] = []
-    for region in sorted(
-        buckets, key=lambda r: (r == cfg.export_unsorted_group, r.lower())
-    ):
-        sites = []
-        for key in sorted(buckets[region], key=lambda n: n.lower()):
-            entry = buckets[region][key]
-            entry["devices"].sort(
-                key=lambda x: (x.effective_hostname or x.management_ip).lower()
-            )
-            sites.append(entry)
-        result.append({"region": region, "sites": sites})
-    return result
+    def _dev_key(x):
+        return (x.effective_hostname or x.management_ip).lower()
+
+    regions = []
+    for region in sorted(nested, key=str.lower):
+        countries = []
+        for country in sorted(nested[region], key=str.lower):
+            site_list = []
+            for site_label in sorted(nested[region][country], key=str.lower):
+                buildings = [
+                    {"building": b, "devices": sorted(devs, key=_dev_key)}
+                    for b, devs in sorted(
+                        nested[region][country][site_label].items(),
+                        key=lambda kv: kv[0].lower(),
+                    )
+                ]
+                site_list.append({"site": site_label, "buildings": buildings})
+            countries.append({"country": country, "sites": site_list})
+        regions.append({"region": region, "countries": countries})
+
+    review.sort(key=_dev_key)
+    return {
+        "root": (cfg.export_root or "").strip(),
+        "regions": regions,
+        "review": review,
+        "review_group": cfg.export_unsorted_group,
+    }
 
 
 def render(request: Request, template: str, session, **ctx) -> HTMLResponse:
@@ -260,6 +277,7 @@ def site_save(
     site_id: int,
     region_override: str = Form(""),
     name_override: str = Form(""),
+    country_override: str = Form(""),
     next_url: str = Form("/sites", alias="next"),
     _: None = Depends(require_auth),
 ):
@@ -270,6 +288,7 @@ def site_save(
             raise HTTPException(404, "Site not found")
         site.region_override = region_override.strip() or None
         site.name_override = name_override.strip() or None
+        site.country_override = country_override.strip() or None
         session.commit()
     finally:
         session.close()
@@ -319,6 +338,7 @@ def device_edit(
             session,
             device=device,
             sites=_all_sites(session),
+            derived_code=site_code_for(device, get_settings()),
             next_to=_safe_next(next_url, "/devices"),
         )
     finally:
@@ -330,6 +350,7 @@ def device_save(
     device_id: int,
     hostname_override: str = Form(""),
     site_override_id: str = Form(""),
+    site_code_override: str = Form(""),
     excluded: str = Form(""),
     next_url: str = Form("/devices", alias="next"),
     _: None = Depends(require_auth),
@@ -341,6 +362,7 @@ def device_save(
             raise HTTPException(404, "Device not found")
         device.hostname_override = hostname_override.strip() or None
         device.site_override_id = int(site_override_id) if site_override_id else None
+        device.site_code_override = (site_code_override.strip().upper() or None)
         device.excluded = excluded == "on"
         session.commit()
     finally:

@@ -2,31 +2,56 @@
 {% block title %}Tree · Catalyst → RDM{% endblock %}
 {% block content %}
 <h1>Tree preview</h1>
-<p class="muted">A live preview of exactly what the Devolutions CSV will contain:
-Region → Site → Device. Unresolved switches land in
-<strong>{{ review_group }}</strong>.</p>
+<p class="muted">A live preview of exactly what the Devolutions export will contain:
+{% if tree.root %}<strong>{{ tree.root }}</strong> → {% endif %}Region → Country →
+Site (code) → Building → Device. Switches that can't be fully placed land in
+<strong>{{ tree.review_group }}</strong>.</p>
 
-{% for region in tree %}
+{% for region in tree.regions %}
   <section class="region">
     <h2>{{ region.region }}</h2>
-    {% for site in region.sites %}
-      <div class="site">
-        {% if site.name %}
-          <h3>{{ site.name }}{% if site.site and site.site.address %}
-            <span class="addr">{{ site.site.address }}</span>{% endif %}</h3>
-        {% endif %}
-        <ul class="devices">
-          {% for d in site.devices %}
-            <li>
-              <a href="/devices/{{ d.id }}/edit?next=/tree">{{ d.effective_hostname or d.management_ip }}</a>
-              <span class="ip">{{ d.management_ip }}</span>
-            </li>
-          {% endfor %}
-        </ul>
+    {% for country in region.countries %}
+      <div class="country">
+        <h3>{{ country.country }}</h3>
+        {% for site in country.sites %}
+          <div class="site">
+            <h4>{{ site.site }}</h4>
+            {% for building in site.buildings %}
+              <div class="building">
+                <h5>{{ building.building }}</h5>
+                <ul class="devices">
+                  {% for d in building.devices %}
+                    <li>
+                      <a href="/devices/{{ d.id }}/edit?next=/tree">{{ d.effective_hostname or d.management_ip }}</a>
+                      <span class="ip">{{ d.management_ip }}</span>
+                      {% if d.asset_summary %}<span class="asset">{{ d.asset_summary }}</span>{% endif %}
+                    </li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endfor %}
+          </div>
+        {% endfor %}
       </div>
     {% endfor %}
   </section>
 {% else %}
-  <p class="muted">No devices yet. Run a sync from the dashboard.</p>
+  <p class="muted">No placeable devices yet. Run a sync, then resolve any conflicts.</p>
 {% endfor %}
+
+{% if tree.review %}
+  <section class="region review">
+    <h2>{{ tree.review_group }} <span class="muted">— needs attention</span></h2>
+    <p class="muted">Missing region, country, or site code — fix via the device/site overrides
+    or the <a href="/conflicts">Conflicts</a> page.</p>
+    <ul class="devices">
+      {% for d in tree.review %}
+        <li>
+          <a href="/devices/{{ d.id }}/edit?next=/tree">{{ d.effective_hostname or d.management_ip }}</a>
+          <span class="ip">{{ d.management_ip }}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+{% endif %}
 {% endblock %}

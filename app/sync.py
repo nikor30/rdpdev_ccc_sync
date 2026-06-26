@@ -5,9 +5,14 @@ Mapping rules
 * Catalyst Center *buildings* become our Sites (they carry address + coordinates).
 * Region is derived from the site hierarchy: "Global/EMEA/Munich/Plant-A" with
   REGION_HIERARCHY_LEVEL=1 yields region "EMEA".
+* Country is derived from the building's street address (last component).
+* The RDM tree is Root/Region/Country/Site(code)/Building/Device, where the
+  "Site" is the building's parent area and the 3-letter code comes from the
+  device hostname (see export.device_placement).
 * Devices assigned to a floor are rolled up to that floor's parent building.
-* User overrides (region_override, name_override, site_override_id, excluded,
-  hostname_override) are NEVER touched by a sync.
+* User overrides (region_override, name_override, country_override,
+  site_override_id, site_code_override, excluded, hostname_override) are NEVER
+  touched by a sync.
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ def _parse_site(raw: dict) -> dict:
         except (TypeError, ValueError):
             return None
 
+    address = attrs.get("address")
     return {
         "catalyst_id": raw.get("id", ""),
         "name": raw.get("name", "") or "",
@@ -52,8 +58,22 @@ def _parse_site(raw: dict) -> dict:
         "type": (attrs.get("type") or "").lower(),  # area / building / floor
         "latitude": _float("latitude"),
         "longitude": _float("longitude"),
-        "address": attrs.get("address"),
+        "address": address,
+        "country": _country_from_address(address),
     }
+
+
+def _country_from_address(address: str | None) -> str:
+    """Best-effort country from a freeform building address (its last part).
+
+    Catalyst stores the address as one string ("Karl-Marx-Str 1, 80331 Munich,
+    Germany"); the country is conventionally the final comma-separated segment.
+    Wrong guesses are fixable with a country override on the site.
+    """
+    if not address:
+        return ""
+    parts = [p.strip() for p in address.split(",") if p.strip()]
+    return parts[-1] if parts else ""
 
 
 def _derive_region(hierarchy: str, level: int, own_name: str) -> str:
@@ -119,6 +139,7 @@ def run_sync(cfg: Settings | None = None) -> SyncRun:
             site.region = _derive_region(
                 p["hierarchy"], cfg.region_hierarchy_level, p["name"]
             )
+            site.country = p["country"]
             site.latitude = p["latitude"]
             site.longitude = p["longitude"]
             site.address = p["address"]
@@ -165,6 +186,7 @@ def run_sync(cfg: Settings | None = None) -> SyncRun:
             dev.platform = d.get("platformId")
             dev.series = d.get("series")
             dev.software_version = d.get("softwareVersion")
+            dev.serial_number = d.get("serialNumber")
             dev.reachability = d.get("reachabilityStatus")
             dev.seen_in_last_sync = True
             dev.synced_at = _now()

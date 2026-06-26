@@ -111,11 +111,18 @@ tr.sev-error td { background: #fff8f7; }
 /* Tree -------------------------------------------------------------------- */
 .region { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
 .region > h2 { margin-top: 0; }
-.site { margin: 0.5rem 0 0.5rem 0.5rem; padding-left: 0.75rem; border-left: 2px solid var(--line); }
+.country { margin: 0.35rem 0 0.35rem 0.5rem; padding-left: 0.75rem; border-left: 2px solid var(--line); }
+.country > h3 { margin: 0.3rem 0; font-size: 0.98rem; }
+.site { margin: 0.35rem 0 0.35rem 0.5rem; padding-left: 0.75rem; border-left: 2px solid var(--line); }
+.site > h4 { margin: 0.3rem 0; font-size: 0.92rem; }
 .site .addr { color: var(--muted); font-weight: 400; font-size: 0.85rem; margin-left: 0.5rem; }
+.building { margin: 0.25rem 0 0.25rem 0.5rem; padding-left: 0.75rem; border-left: 2px dashed var(--line); }
+.building > h5 { margin: 0.25rem 0; font-size: 0.88rem; font-weight: 600; color: var(--muted); }
+.region.review { border-color: #f0c9c4; }
 ul.devices { list-style: none; margin: 0.25rem 0; padding-left: 0.5rem; }
 ul.devices li { padding: 0.15rem 0; }
 ul.devices .ip { color: var(--muted); font-size: 0.85rem; margin-left: 0.5rem; }
+ul.devices .asset { color: var(--muted); font-size: 0.78rem; margin-left: 0.5rem; }
 
 /* Forms ------------------------------------------------------------------- */
 .form { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 1.25rem; max-width: 560px; }
