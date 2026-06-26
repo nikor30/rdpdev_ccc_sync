@@ -1,6 +1,7 @@
 """Database models and session management (SQLAlchemy 2.0, sync)."""
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime
 from typing import Optional
@@ -14,6 +15,8 @@ from sqlalchemy import (
     Integer,
     String,
     create_engine,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -24,6 +27,8 @@ from sqlalchemy.orm import (
 )
 
 from .config import settings
+
+log = logging.getLogger(__name__)
 
 
 class Base(DeclarativeBase):
@@ -197,5 +202,49 @@ engine = create_engine(settings.database_url, connect_args=_connect_args, future
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 
 
+def _default_literal(column) -> str:
+    """SQL literal for a NOT NULL column's default, for ALTER TABLE ADD COLUMN."""
+    default = column.default
+    if default is not None and getattr(default, "is_scalar", False):
+        val = default.arg
+        if isinstance(val, bool):
+            return "1" if val else "0"
+        if isinstance(val, (int, float)):
+            return str(val)
+        return "'" + str(val).replace("'", "''") + "'"
+    if isinstance(column.type, (Integer, Boolean, Float)):
+        return "0"
+    return "''"
+
+
+def _migrate_sqlite_columns() -> None:
+    """Add any mapped columns missing from existing SQLite tables.
+
+    ``create_all`` creates missing *tables* but never alters existing ones, so a
+    database from an earlier release (the /data volume survives image rebuilds)
+    is missing newer columns and every query fails with 'no such column'. SQLite
+    supports ADD COLUMN, so backfill them here. Idempotent.
+    """
+    if not str(settings.database_url).startswith("sqlite"):
+        return
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if table.name not in tables:
+                continue  # freshly created by create_all, already complete
+            present = {c["name"] for c in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in present:
+                    continue
+                coltype = column.type.compile(dialect=engine.dialect)
+                clause = f'"{column.name}" {coltype}'
+                if not column.nullable:
+                    clause += f" NOT NULL DEFAULT {_default_literal(column)}"
+                conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN {clause}'))
+                log.info("DB migration: added column %s.%s", table.name, column.name)
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _migrate_sqlite_columns()

@@ -137,6 +137,35 @@ def test_tree_matches_export():
         session.close()
 
 
+def test_migration_backfills_missing_columns():
+    """An existing volume from an older schema must auto-upgrade, not 500.
+
+    Reproduces the production bug: create_all leaves an existing table alone, so
+    a DB predating the geo/asset columns was missing them and every query failed
+    with 'no such column'. init_db() must add them.
+    """
+    from sqlalchemy import inspect, text
+    from app.db import engine, init_db
+
+    with engine.begin() as conn:  # simulate the pre-hierarchy devices table
+        conn.execute(text("DROP TABLE IF EXISTS devices"))
+        conn.execute(text(
+            "CREATE TABLE devices (id INTEGER PRIMARY KEY, catalyst_id VARCHAR, "
+            "hostname VARCHAR, hostname_override VARCHAR, management_ip VARCHAR, "
+            "family VARCHAR, role VARCHAR, platform VARCHAR, series VARCHAR, "
+            "software_version VARCHAR, reachability VARCHAR, site_id INTEGER, "
+            "site_override_id INTEGER, excluded BOOLEAN, seen_in_last_sync BOOLEAN, "
+            "synced_at DATETIME)"
+        ))
+
+    init_db()  # should ALTER TABLE ADD COLUMN the missing ones
+
+    cols = {c["name"] for c in inspect(engine).get_columns("devices")}
+    assert {"serial_number", "site_code_override"} <= cols
+    with TestClient(app) as client:
+        assert client.get("/").status_code == 200  # no 'no such column' 500
+
+
 def test_open_redirect_is_blocked():
     ids = _seed()
     with TestClient(app) as client:
