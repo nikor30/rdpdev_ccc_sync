@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Sites · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Sites</h1>
+<p class="muted">Buildings from Catalyst Center. Set a region/name override where the
+derived value is wrong or missing.</p>
+
+<table class="grid">
+  <thead>
+    <tr><th>Region</th><th>Site</th><th>Hierarchy</th><th>Address</th><th>Switches</th><th></th></tr>
+  </thead>
+  <tbody>
+    {% for s in sites %}
+      <tr>
+        <td>
+          {% if s.effective_region %}{{ s.effective_region }}{% else %}<span class="warn">— none —</span>{% endif %}
+          {% if s.region_override %}<span class="pill">override</span>{% endif %}
+        </td>
+        <td>{{ s.effective_name }}{% if s.name_override %}<span class="pill">override</span>{% endif %}</td>
+        <td class="muted">{{ s.hierarchy }}</td>
+        <td class="muted">{{ s.address or "" }}</td>
+        <td>{{ counts[s.id] }}</td>
+        <td><a href="/sites/{{ s.id }}/edit">Edit</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No sites yet. Run a sync.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

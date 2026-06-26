@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Tree · Catalyst → RDM{% endblock %}
+{% block content %}
+<h1>Tree preview</h1>
+<p class="muted">A live preview of exactly what the Devolutions CSV will contain:
+Region → Site → Device. Unresolved switches land in
+<strong>{{ review_group }}</strong>.</p>
+
+{% for region in tree %}
+  <section class="region">
+    <h2>{{ region.region }}</h2>
+    {% for site in region.sites %}
+      <div class="site">
+        {% if site.name %}
+          <h3>{{ site.name }}{% if site.site and site.site.address %}
+            <span class="addr">{{ site.site.address }}</span>{% endif %}</h3>
+        {% endif %}
+        <ul class="devices">
+          {% for d in site.devices %}
+            <li>
+              <a href="/devices/{{ d.id }}/edit?next=/tree">{{ d.effective_hostname or d.management_ip }}</a>
+              <span class="ip">{{ d.management_ip }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </section>
+{% else %}
+  <p class="muted">No devices yet. Run a sync from the dashboard.</p>
+{% endfor %}
+{% endblock %}

@@ -7,7 +7,15 @@ import threading
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from fastapi import BackgroundTasks, Depends, FastAPI, Form, HTTPException, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+)
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +24,7 @@ from fastapi.templating import Jinja2Templates
 from .config import settings
 from .conflicts import compute_conflicts
 from .db import Device, Site, SyncRun, SessionLocal, init_db
-from .export import to_csv
+from .export import device_placement, to_csv
 from .sync import run_sync, sync_in_progress
 
 logging.basicConfig(
@@ -83,24 +91,38 @@ def require_auth(creds: HTTPBasicCredentials | None = Depends(_security)) -> Non
 
 # --- Helpers ------------------------------------------------------------------
 
+def _safe_next(target: str, fallback: str) -> str:
+    """Only allow same-site relative redirects (block //evil.com and schemes)."""
+    if target and target.startswith("/") and not target.startswith("//"):
+        return target
+    return fallback
+
+
 def _all_sites(session) -> list[Site]:
     sites = session.query(Site).all()
     return sorted(sites, key=lambda s: (s.effective_region.lower(), s.effective_name.lower()))
 
 
 def build_tree(session) -> list[dict]:
-    """Group active devices exactly the way the export will: Region -> Site -> Device."""
+    """Group active devices exactly the way the export will: Region -> Site -> Device.
+
+    Placement comes from ``device_placement`` so this preview can never disagree
+    with the CSV. Unresolved devices share the flat review group: their bucket
+    has ``name == None`` and is rendered without a site sub-folder, matching the
+    single flat ``_Review`` folder the export emits.
+    """
     buckets: dict[str, dict[str, dict]] = {}
     for d in session.query(Device).all():
         if d.excluded:
             continue
-        site = d.effective_site
-        region = (site.effective_region if site else "") or settings.export_unsorted_group
-        site_name = (site.effective_name if site else "") or "(no site)"
+        region, site_name = device_placement(d, settings)
         region_bucket = buckets.setdefault(region, {})
         entry = region_bucket.setdefault(
-            site_name, {"name": site_name, "site": site, "devices": []}
+            site_name or "", {"name": site_name, "site": None, "devices": []}
         )
+        # Keep a representative Site for display (address/coords) when resolved.
+        if entry["site"] is None and site_name:
+            entry["site"] = d.effective_site
         entry["devices"].append(d)
 
     result: list[dict] = []
@@ -108,8 +130,8 @@ def build_tree(session) -> list[dict]:
         buckets, key=lambda r: (r == settings.export_unsorted_group, r.lower())
     ):
         sites = []
-        for site_name in sorted(buckets[region], key=lambda n: n.lower()):
-            entry = buckets[region][site_name]
+        for key in sorted(buckets[region], key=lambda n: n.lower()):
+            entry = buckets[region][key]
             entry["devices"].sort(
                 key=lambda x: (x.effective_hostname or x.management_ip).lower()
             )
@@ -121,13 +143,12 @@ def build_tree(session) -> list[dict]:
 def render(request: Request, template: str, session, **ctx) -> HTMLResponse:
     report = compute_conflicts(session)
     base = {
-        "request": request,
         "nav_conflicts": report.count,
         "nav_blocking": report.blocking_count,
         "review_group": settings.export_unsorted_group,
     }
     base.update(ctx)
-    return templates.TemplateResponse(template, base)
+    return templates.TemplateResponse(request, template, base)
 
 
 # --- Routes -------------------------------------------------------------------
@@ -138,7 +159,7 @@ def dashboard(request: Request, _: None = Depends(require_auth)):
     try:
         device_count = session.query(Device).count()
         excluded_count = (
-            session.query(Device).filter(Device.excluded == True).count()  # noqa: E712
+            session.query(Device).filter(Device.excluded.is_(True)).count()
         )
         site_count = session.query(Site).count()
         regions = {s.effective_region for s in session.query(Site).all() if s.effective_region}
@@ -185,13 +206,24 @@ def sites_page(request: Request, _: None = Depends(require_auth)):
 
 
 @app.get("/sites/{site_id}/edit", response_class=HTMLResponse)
-def site_edit(site_id: int, request: Request, _: None = Depends(require_auth)):
+def site_edit(
+    site_id: int,
+    request: Request,
+    next_url: str = Query("/sites", alias="next"),
+    _: None = Depends(require_auth),
+):
     session = SessionLocal()
     try:
         site = session.get(Site, site_id)
         if site is None:
             raise HTTPException(404, "Site not found")
-        return render(request, "site_edit.html", session, site=site)
+        return render(
+            request,
+            "site_edit.html",
+            session,
+            site=site,
+            next_to=_safe_next(next_url, "/sites"),
+        )
     finally:
         session.close()
 
@@ -201,7 +233,7 @@ def site_save(
     site_id: int,
     region_override: str = Form(""),
     name_override: str = Form(""),
-    next: str = Form("/sites"),
+    next_url: str = Form("/sites", alias="next"),
     _: None = Depends(require_auth),
 ):
     session = SessionLocal()
@@ -214,7 +246,7 @@ def site_save(
         session.commit()
     finally:
         session.close()
-    return RedirectResponse(next or "/sites", status_code=303)
+    return RedirectResponse(_safe_next(next_url, "/sites"), status_code=303)
 
 
 @app.get("/devices", response_class=HTMLResponse)
@@ -243,7 +275,12 @@ def devices_page(
 
 
 @app.get("/devices/{device_id}/edit", response_class=HTMLResponse)
-def device_edit(device_id: int, request: Request, _: None = Depends(require_auth)):
+def device_edit(
+    device_id: int,
+    request: Request,
+    next_url: str = Query("/devices", alias="next"),
+    _: None = Depends(require_auth),
+):
     session = SessionLocal()
     try:
         device = session.get(Device, device_id)
@@ -255,6 +292,7 @@ def device_edit(device_id: int, request: Request, _: None = Depends(require_auth
             session,
             device=device,
             sites=_all_sites(session),
+            next_to=_safe_next(next_url, "/devices"),
         )
     finally:
         session.close()
@@ -266,7 +304,7 @@ def device_save(
     hostname_override: str = Form(""),
     site_override_id: str = Form(""),
     excluded: str = Form(""),
-    next: str = Form("/devices"),
+    next_url: str = Form("/devices", alias="next"),
     _: None = Depends(require_auth),
 ):
     session = SessionLocal()
@@ -280,7 +318,7 @@ def device_save(
         session.commit()
     finally:
         session.close()
-    return RedirectResponse(next or "/devices", status_code=303)
+    return RedirectResponse(_safe_next(next_url, "/devices"), status_code=303)
 
 
 @app.get("/conflicts", response_class=HTMLResponse)
