@@ -6,8 +6,11 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    # Optional: load .env if present. Not required — you can leave it out and
+    # configure everything in the UI under Settings (persisted in the DB volume).
     env_file:
-      - .env
+      - path: .env
+        required: false
     volumes:
       - catalyst_rdm_data:/data
 

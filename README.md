@@ -108,8 +108,13 @@ Open <http://localhost:8080>, click **Sync now**, then review the **Tree**.
 ### Or with compose
 
 ```bash
-podman-compose up -d     # or: docker compose up -d
+docker compose up -d --build   # or: podman-compose up -d
 ```
+
+The compose file treats `.env` as **optional** (`required: false`, needs Docker
+Compose ≥ 2.24): bring the stack up with no `.env` and configure everything in
+the UI under **Settings**, or drop in a `.env` (`cp .env.example .env`) to seed
+the defaults from the environment. On older Compose, create the `.env` first.
 
 The SQLite staging DB lives on the `catalyst_rdm_data` volume, so it persists
 across restarts and image rebuilds.
